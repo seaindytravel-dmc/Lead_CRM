@@ -19,6 +19,7 @@ pool.connect((err, client, release) => {
 
 // สร้างตารางทั้งหมด (IF NOT EXISTS = ปลอดภัย รันซ้ำได้)
 async function initDB() {
+  // สร้างตารางถ้ายังไม่มี
   await pool.query(`
     CREATE TABLE IF NOT EXISTS contacts (
       id         SERIAL PRIMARY KEY,
@@ -26,7 +27,7 @@ async function initDB() {
       company    VARCHAR(100),
       email      VARCHAR(100),
       phone      VARCHAR(20),
-      status     VARCHAR(20) DEFAULT 'lead',   -- lead / prospect / customer / inactive
+      status     VARCHAR(20) DEFAULT 'lead',
       tags       TEXT,
       notes      TEXT,
       created_at TIMESTAMP DEFAULT NOW(),
@@ -38,13 +39,27 @@ async function initDB() {
       contact_id INTEGER REFERENCES contacts(id),
       title      VARCHAR(200),
       value      DECIMAL(10,2),
-      stage      VARCHAR(30) DEFAULT 'new',    -- new / contacted / proposal / negotiation / won / lost
+      stage      VARCHAR(30) DEFAULT 'new',
       close_date DATE,
       notes      TEXT,
       created_at TIMESTAMP DEFAULT NOW()
     );
   `);
-  console.log('✅ Tables initialized');
+
+  // Migration: เพิ่มคอลัมน์ที่อาจขาดในตารางเก่า (ADD COLUMN IF NOT EXISTS)
+  await pool.query(`
+    ALTER TABLE contacts
+      ADD COLUMN IF NOT EXISTS status     VARCHAR(20) DEFAULT 'lead',
+      ADD COLUMN IF NOT EXISTS tags       TEXT,
+      ADD COLUMN IF NOT EXISTS notes      TEXT,
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+
+    ALTER TABLE deals
+      ADD COLUMN IF NOT EXISTS notes      TEXT,
+      ADD COLUMN IF NOT EXISTS close_date DATE;
+  `);
+
+  console.log('✅ Tables initialized + migrated');
 }
 
 // ใส่ข้อมูลตัวอย่าง (เช็คก่อนว่ามีแล้วหรือยัง)
