@@ -1,22 +1,17 @@
-# Dockerfile - สร้าง Docker image สำหรับ CRM App
-
-# ใช้ Node.js 20 alpine (ขนาดเล็ก เร็ว)
+# Dockerfile — สำหรับ Railway deployment
 FROM node:20-alpine
 
-# กำหนด working directory ภายใน container
 WORKDIR /app
 
-# คัดลอก package files ก่อน (ใช้ Docker layer cache ให้เป็นประโยชน์)
+# ติดตั้ง dependencies ก่อน (ใช้ Docker layer cache)
 COPY package*.json ./
-
-# ติดตั้ง dependencies (production เท่านั้น)
 RUN npm install --omit=dev
 
-# คัดลอกไฟล์ทั้งหมด
+# copy source code
 COPY . .
 
-# เปิด port 3000
+# Railway inject PORT ผ่าน env var อัตโนมัติ
+# ไม่ต้อง hardcode port — server.js ใช้ process.env.PORT || 3000
 EXPOSE 3000
 
-# คำสั่งรัน app
 CMD ["node", "server.js"]

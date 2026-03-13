@@ -19,8 +19,8 @@ app.use(express.static(path.join(__dirname, 'public')));
 const contactsRouter = require('./routes/contacts');
 const dealsRouter = require('./routes/deals');
 
-app.use('/api/contacts', contactsRouter); // จัดการ Contact CRUD
-app.use('/api/deals', dealsRouter);       // จัดการ Deal CRUD
+app.use('/api/contacts', contactsRouter);
+app.use('/api/deals', dealsRouter);
 
 // --- Health Check ---
 app.get('/api/health', (req, res) => {
@@ -34,6 +34,10 @@ app.get('*', (req, res) => {
 
 // --- Start Server ---
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const { initDB, seedData } = require('./db');
+
+app.listen(PORT, async () => {
+  await initDB();
+  await seedData();
   console.log(`✅ CRM Server running at http://localhost:${PORT}`);
 });
