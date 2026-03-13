@@ -2,7 +2,6 @@
 const express  = require('express');
 const router   = express.Router();
 const { pool } = require('../db');
-const ExcelJS  = require('exceljs');
 
 // GET /api/contacts/export — ดาวน์โหลด CSV พร้อม BOM ให้ Excel อ่านภาษาไทยได้
 // ต้องอยู่ก่อน /:id ทุกตัว
@@ -56,6 +55,8 @@ router.get('/export', async (req, res) => {
 
 // GET /api/contacts/export-excel — ดาวน์โหลด .xlsx พร้อม styling
 router.get('/export-excel', async (req, res) => {
+  // lazy-load เพื่อไม่ให้ crash ทั้งไฟล์ถ้า exceljs โหลดไม่ได้
+  const ExcelJS = require('exceljs');
   try {
     const result = await pool.query(`
       SELECT
