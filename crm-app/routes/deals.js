@@ -1,52 +1,69 @@
-// routes/deals.js - CRUD endpoints สำหรับ Deal (โอกาสการขาย)
+// routes/deals.js - REST API สำหรับ Deals
 const express = require('express');
 const router = express.Router();
-const pool = require('../db');
+const { pool } = require('../db');
 
-// GET /api/deals - ดึง deals ทั้งหมด พร้อมชื่อ contact ที่เชื่อมกัน
+// GET /api/deals/pipeline — ต้องอยู่ก่อน /:id
+// คืน { stage, count, total_value } แต่ละ stage
+router.get('/pipeline', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        stage,
+        COUNT(*)            AS count,
+        COALESCE(SUM(value), 0) AS total_value
+      FROM deals
+      GROUP BY stage
+      ORDER BY
+        CASE stage
+          WHEN 'new'         THEN 1
+          WHEN 'contacted'   THEN 2
+          WHEN 'proposal'    THEN 3
+          WHEN 'negotiation' THEN 4
+          WHEN 'won'         THEN 5
+          WHEN 'lost'        THEN 6
+          ELSE 7
+        END
+    `);
+    res.json(result.rows.map(row => ({
+      stage:       row.stage,
+      count:       parseInt(row.count),
+      total_value: parseFloat(row.total_value),
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/deals — รายการทั้งหมด พร้อม JOIN ชื่อ contact
 router.get('/', async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT d.*, c.name AS contact_name
-       FROM deals d
-       LEFT JOIN contacts c ON d.contact_id = c.id
-       ORDER BY d.created_at DESC`
-    );
+    const result = await pool.query(`
+      SELECT d.*, c.name AS contact_name, c.company AS contact_company
+      FROM deals d
+      LEFT JOIN contacts c ON d.contact_id = c.id
+      ORDER BY d.created_at DESC
+    `);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/deals/:id - ดึง deal เดียวตาม id
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await pool.query(
-      `SELECT d.*, c.name AS contact_name
-       FROM deals d
-       LEFT JOIN contacts c ON d.contact_id = c.id
-       WHERE d.id = $1`,
-      [id]
-    );
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Deal not found' });
-    }
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/deals - สร้าง deal ใหม่
-// stage: 'lead' | 'qualified' | 'proposal' | 'negotiation' | 'closed_won' | 'closed_lost'
+// POST /api/deals — สร้าง deal ใหม่
 router.post('/', async (req, res) => {
   try {
-    const { title, value, stage, contact_id } = req.body;
+    const { contact_id, title, value, stage, close_date, notes } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'title is required' });
+    }
+
     const result = await pool.query(
-      `INSERT INTO deals (title, value, stage, contact_id)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [title, value, stage || 'lead', contact_id]
+      `INSERT INTO deals (contact_id, title, value, stage, close_date, notes)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [contact_id, title.trim(), value || 0, stage || 'new', close_date || null, notes]
     );
     res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -54,16 +71,22 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/deals/:id - แก้ไข deal
+// PUT /api/deals/:id — แก้ไข deal
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, value, stage, contact_id } = req.body;
+    const { contact_id, title, value, stage, close_date, notes } = req.body;
+
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'title is required' });
+    }
+
     const result = await pool.query(
       `UPDATE deals
-       SET title=$1, value=$2, stage=$3, contact_id=$4, updated_at=NOW()
-       WHERE id=$5 RETURNING *`,
-      [title, value, stage, contact_id, id]
+       SET contact_id=$1, title=$2, value=$3, stage=$4, close_date=$5, notes=$6
+       WHERE id=$7
+       RETURNING *`,
+      [contact_id, title.trim(), value, stage, close_date || null, notes, id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Deal not found' });
@@ -74,11 +97,17 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/deals/:id - ลบ deal
+// DELETE /api/deals/:id — ลบ deal
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.query('DELETE FROM deals WHERE id = $1', [id]);
+    const result = await pool.query(
+      'DELETE FROM deals WHERE id = $1 RETURNING id',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Deal not found' });
+    }
     res.json({ message: 'Deal deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
