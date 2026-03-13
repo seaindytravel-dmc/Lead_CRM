@@ -1,0 +1,8 @@
+# Claude Code local settings
+.claude/
+
+# Node
+node_modules/
+
+# Environment
+.env
