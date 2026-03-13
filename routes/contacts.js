@@ -1,7 +1,8 @@
 // routes/contacts.js - REST API สำหรับ Contacts
-const express = require('express');
-const router = express.Router();
+const express  = require('express');
+const router   = express.Router();
 const { pool } = require('../db');
+const ExcelJS  = require('exceljs');
 
 // GET /api/contacts/export — ดาวน์โหลด CSV พร้อม BOM ให้ Excel อ่านภาษาไทยได้
 // ต้องอยู่ก่อน /:id ทุกตัว
@@ -48,6 +49,116 @@ router.get('/export', async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="contacts-${date}.csv"`);
     res.send(csv);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/contacts/export-excel — ดาวน์โหลด .xlsx พร้อม styling
+router.get('/export-excel', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        c.id, c.name, c.company, c.email, c.phone, c.status,
+        c.tags, c.notes, c.created_at,
+        COUNT(d.id)              AS deal_count,
+        COALESCE(SUM(d.value),0) AS deal_total
+      FROM contacts c
+      LEFT JOIN deals d ON c.id = d.contact_id
+      GROUP BY c.id
+      ORDER BY c.created_at DESC
+    `);
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'MyCRM';
+    wb.created = new Date();
+
+    const ws = wb.addWorksheet('Contacts', {
+      views: [{ state: 'frozen', ySplit: 1 }], // freeze header row
+    });
+
+    // ---- Column definitions ----
+    ws.columns = [
+      { header: 'ID',            key: 'id',          width: 8  },
+      { header: 'ชื่อ',          key: 'name',        width: 24 },
+      { header: 'บริษัท',        key: 'company',     width: 22 },
+      { header: 'อีเมล',         key: 'email',       width: 28 },
+      { header: 'เบอร์โทร',      key: 'phone',       width: 16 },
+      { header: 'สถานะ',         key: 'status',      width: 14 },
+      { header: 'Tags',          key: 'tags',        width: 20 },
+      { header: 'Notes',         key: 'notes',       width: 30 },
+      { header: 'จำนวน Deals',   key: 'deal_count',  width: 14 },
+      { header: 'มูลค่า Deals',  key: 'deal_total',  width: 16 },
+      { header: 'วันที่สร้าง',   key: 'created_at',  width: 16 },
+    ];
+
+    // ---- Header row styling ----
+    const headerRow = ws.getRow(1);
+    headerRow.eachCell(cell => {
+      cell.fill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } };
+      cell.font   = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      cell.border = {
+        bottom: { style: 'thin', color: { argb: 'FF3B82F6' } },
+      };
+    });
+    headerRow.height = 28;
+
+    // ---- Status color map ----
+    const statusColor = {
+      lead:     'FFdbeafe', // blue-100
+      prospect: 'FFfef9c3', // yellow-100
+      customer: 'FFdcfce7', // green-100
+      inactive: 'FFf3f4f6', // gray-100
+    };
+
+    // ---- Data rows ----
+    result.rows.forEach((r, i) => {
+      const row = ws.addRow({
+        id:         r.id,
+        name:       r.name        || '',
+        company:    r.company     || '',
+        email:      r.email       || '',
+        phone:      r.phone       || '',
+        status:     r.status      || '',
+        tags:       r.tags        || '',
+        notes:      r.notes       || '',
+        deal_count: Number(r.deal_count),
+        deal_total: Number(r.deal_total),
+        created_at: new Date(r.created_at).toLocaleDateString('th-TH'),
+      });
+
+      // สลับสี row
+      const rowBg = i % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC';
+      row.eachCell(cell => {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
+        cell.alignment = { vertical: 'middle', wrapText: false };
+      });
+
+      // status cell สีตาม status
+      const statusCell = row.getCell('status');
+      const bg = statusColor[r.status] || 'FFF3F4F6';
+      statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } };
+      statusCell.font = { bold: true };
+      statusCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      // deal_total format เป็น currency
+      row.getCell('deal_total').numFmt = '#,##0.00';
+      row.getCell('deal_count').alignment = { horizontal: 'center', vertical: 'middle' };
+      row.height = 22;
+    });
+
+    // ---- Auto-filter ----
+    ws.autoFilter = { from: 'A1', to: `K1` };
+
+    // ---- Send file ----
+    const date = new Date().toISOString().substring(0, 10);
+    const filename = `contacts-${date}.xlsx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

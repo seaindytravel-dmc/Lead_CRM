@@ -114,6 +114,29 @@ function setSavingState(saving) {
 }
 
 // ==============================
+// EXPORT EXCEL
+// ==============================
+async function exportExcel() {
+  try {
+    showToast('⏳ กำลังสร้างไฟล์ Excel...');
+    const res = await fetch(`${API}/contacts/export-excel`);
+    if (!res.ok) throw new Error('Export ไม่สำเร็จ');
+    const blob = await res.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^"]+)"?/);
+    a.download = match ? match[1] : `contacts-${new Date().toISOString().substring(0,10)}.xlsx`;
+    a.href = url;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('✓ ดาวน์โหลด Excel สำเร็จ');
+  } catch (err) {
+    showToast(err.message || 'Export ไม่สำเร็จ', 'error');
+  }
+}
+
+// ==============================
 // EXPORT CSV
 // ==============================
 async function exportCSV() {
